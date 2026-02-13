@@ -19,8 +19,7 @@ export type SheetOrder = {
 type RequiredEnv =
   | "GOOGLE_SERVICE_ACCOUNT_EMAIL"
   | "GOOGLE_PRIVATE_KEY"
-  | "GOOGLE_SHEETS_SPREADSHEET_ID"
-  | "GOOGLE_SHEETS_SHEET_NAME";
+  | "GOOGLE_SHEETS_SPREADSHEET_ID";
 
 function getEnv(name: RequiredEnv) {
   const value = process.env[name];
@@ -44,7 +43,7 @@ function getSheetsClient() {
 function getConfig() {
   return {
     spreadsheetId: getEnv("GOOGLE_SHEETS_SPREADSHEET_ID"),
-    sheetName: getEnv("GOOGLE_SHEETS_SHEET_NAME"),
+    sheetName: process.env.GOOGLE_SHEETS_SHEET_NAME?.trim() || "orders",
     productsSheetName: process.env.GOOGLE_SHEETS_PRODUCTS_SHEET_NAME?.trim() || "products",
   };
 }
