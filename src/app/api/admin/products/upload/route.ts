@@ -1,31 +1,22 @@
 import { NextResponse } from "next/server";
-import { Readable } from "stream";
-import { google } from "googleapis";
+import crypto from "crypto";
 import { isAdminAuthenticated } from "@/lib/admin-auth";
 
 export const runtime = "nodejs";
 
-function safeName(name: string) {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9.-]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
-function requiredEnv(name: "GOOGLE_SERVICE_ACCOUNT_EMAIL" | "GOOGLE_PRIVATE_KEY" | "GOOGLE_DRIVE_PRODUCTS_FOLDER_ID") {
+function requiredEnv(name: "CLOUDINARY_CLOUD_NAME" | "CLOUDINARY_API_KEY" | "CLOUDINARY_API_SECRET") {
   const value = process.env[name];
   if (!value) throw new Error(`Missing env: ${name}`);
   return value;
 }
 
-function getDriveClient() {
-  const auth = new google.auth.JWT({
-    email: requiredEnv("GOOGLE_SERVICE_ACCOUNT_EMAIL"),
-    key: requiredEnv("GOOGLE_PRIVATE_KEY").replace(/\\n/g, "\n"),
-    scopes: ["https://www.googleapis.com/auth/drive"],
-  });
-  return google.drive({ version: "v3", auth });
+function getUploadFolder() {
+  return process.env.CLOUDINARY_UPLOAD_FOLDER?.trim() || "sell-online/products";
+}
+
+function buildSignature(folder: string, timestamp: number, apiSecret: string) {
+  const toSign = `folder=${folder}&timestamp=${timestamp}${apiSecret}`;
+  return crypto.createHash("sha1").update(toSign).digest("hex");
 }
 
 export async function POST(req: Request) {
@@ -48,46 +39,36 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Image must be 5MB or smaller" }, { status: 400 });
     }
 
-    const extFromType = file.type.split("/")[1] || "jpg";
-    const base = safeName(file.name.replace(/\.[^.]+$/, "")) || "product";
-    const fileName = `${Date.now()}-${base}.${extFromType}`;
+    const cloudName = requiredEnv("CLOUDINARY_CLOUD_NAME");
+    const apiKey = requiredEnv("CLOUDINARY_API_KEY");
+    const apiSecret = requiredEnv("CLOUDINARY_API_SECRET");
+    const folder = getUploadFolder();
 
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
-    const stream = Readable.from(buffer);
+    const timestamp = Math.floor(Date.now() / 1000);
+    const signature = buildSignature(folder, timestamp, apiSecret);
 
-    const drive = getDriveClient();
-    const folderId = requiredEnv("GOOGLE_DRIVE_PRODUCTS_FOLDER_ID");
+    const uploadForm = new FormData();
+    uploadForm.append("file", file);
+    uploadForm.append("api_key", apiKey);
+    uploadForm.append("timestamp", String(timestamp));
+    uploadForm.append("signature", signature);
+    uploadForm.append("folder", folder);
 
-    const upload = await drive.files.create({
-      requestBody: {
-        name: fileName,
-        mimeType: file.type,
-        parents: [folderId],
-      },
-      media: {
-        mimeType: file.type,
-        body: stream,
-      },
-      fields: "id",
+    const uploadRes = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
+      method: "POST",
+      body: uploadForm,
     });
 
-    const fileId = upload.data.id;
-    if (!fileId) throw new Error("Failed to create Google Drive file");
+    const uploadData = (await uploadRes.json()) as { secure_url?: string; error?: { message?: string } };
+    if (!uploadRes.ok || !uploadData?.secure_url) {
+      const reason = uploadData?.error?.message ?? "Cloudinary upload failed";
+      return NextResponse.json({ ok: false, error: reason }, { status: 500 });
+    }
 
-    await drive.permissions.create({
-      fileId,
-      requestBody: {
-        role: "reader",
-        type: "anyone",
-      },
-    });
-
-    const imageUrl = `https://drive.google.com/uc?export=view&id=${fileId}`;
-
-    return NextResponse.json({ ok: true, imageUrl });
+    return NextResponse.json({ ok: true, imageUrl: uploadData.secure_url });
   } catch (error) {
     console.error("POST /api/admin/products/upload error", error);
-    return NextResponse.json({ ok: false, error: "Failed to upload image" }, { status: 500 });
+    const message = error instanceof Error ? error.message : "Failed to upload image";
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

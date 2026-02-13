@@ -1,4 +1,4 @@
-Setup checklist for Google Sheets + Google Drive image uploads
+Setup checklist for Google Sheets + Cloudinary image uploads
 
 1) Create spreadsheet tabs
 - Create one spreadsheet.
@@ -13,35 +13,42 @@ Setup checklist for Google Sheets + Google Drive image uploads
 
 3) Enable APIs in Google Cloud
 - Enable `Google Sheets API`.
-- Enable `Google Drive API`.
 
 4) Create service account key
 - Create service account.
 - Create JSON key.
 - Keep `client_email` and `private_key`.
 
-5) Share resources with service account
+5) Share spreadsheet with service account
 - Share spreadsheet to service account email as `Editor`.
-- Create a Google Drive folder for product images.
-- Share that Drive folder to service account email as `Editor`.
-- Copy that folder ID from URL.
 
-6) Configure `.env.local`
+6) Create Cloudinary account
+- Get these values from Cloudinary dashboard:
+  - Cloud name
+  - API key
+  - API secret
+- Optional: choose upload folder (default: `sell-online/products`).
+
+7) Configure `.env.local`
 ```env
 GOOGLE_SERVICE_ACCOUNT_EMAIL=your-service-account@your-project.iam.gserviceaccount.com
 GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
 GOOGLE_SHEETS_SPREADSHEET_ID=your_spreadsheet_id_here
 GOOGLE_SHEETS_SHEET_NAME=orders
 GOOGLE_SHEETS_PRODUCTS_SHEET_NAME=products
-GOOGLE_DRIVE_PRODUCTS_FOLDER_ID=your_drive_folder_id
 ADMIN_PASSWORD=your_strong_admin_password
+
+CLOUDINARY_CLOUD_NAME=your_cloud_name
+CLOUDINARY_API_KEY=your_api_key
+CLOUDINARY_API_SECRET=your_api_secret
+CLOUDINARY_UPLOAD_FOLDER=sell-online/products
 ```
 
-7) Test
+8) Test
 - Run `npm run dev`.
 - Open `/admin`.
 - Add an item and upload an image.
 - Confirm:
   - New row in `products` tab.
-  - `imageUrl` contains a Google Drive URL.
+  - `imageUrl` contains a Cloudinary URL.
   - Image appears on homepage.
