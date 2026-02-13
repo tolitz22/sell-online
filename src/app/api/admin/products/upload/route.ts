@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { mkdir, writeFile } from "fs/promises";
-import path from "path";
+import { Readable } from "stream";
+import { google } from "googleapis";
 import { isAdminAuthenticated } from "@/lib/admin-auth";
 
 export const runtime = "nodejs";
@@ -11,6 +11,21 @@ function safeName(name: string) {
     .replace(/[^a-z0-9.-]+/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+function requiredEnv(name: "GOOGLE_SERVICE_ACCOUNT_EMAIL" | "GOOGLE_PRIVATE_KEY" | "GOOGLE_DRIVE_PRODUCTS_FOLDER_ID") {
+  const value = process.env[name];
+  if (!value) throw new Error(`Missing env: ${name}`);
+  return value;
+}
+
+function getDriveClient() {
+  const auth = new google.auth.JWT({
+    email: requiredEnv("GOOGLE_SERVICE_ACCOUNT_EMAIL"),
+    key: requiredEnv("GOOGLE_PRIVATE_KEY").replace(/\\n/g, "\n"),
+    scopes: ["https://www.googleapis.com/auth/drive"],
+  });
+  return google.drive({ version: "v3", auth });
 }
 
 export async function POST(req: Request) {
@@ -36,16 +51,41 @@ export async function POST(req: Request) {
     const extFromType = file.type.split("/")[1] || "jpg";
     const base = safeName(file.name.replace(/\.[^.]+$/, "")) || "product";
     const fileName = `${Date.now()}-${base}.${extFromType}`;
-    const relativePath = `/uploads/products/${fileName}`;
-
-    const absoluteDir = path.join(process.cwd(), "public", "uploads", "products");
-    await mkdir(absoluteDir, { recursive: true });
 
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
-    await writeFile(path.join(absoluteDir, fileName), buffer);
+    const stream = Readable.from(buffer);
 
-    return NextResponse.json({ ok: true, imageUrl: relativePath });
+    const drive = getDriveClient();
+    const folderId = requiredEnv("GOOGLE_DRIVE_PRODUCTS_FOLDER_ID");
+
+    const upload = await drive.files.create({
+      requestBody: {
+        name: fileName,
+        mimeType: file.type,
+        parents: [folderId],
+      },
+      media: {
+        mimeType: file.type,
+        body: stream,
+      },
+      fields: "id",
+    });
+
+    const fileId = upload.data.id;
+    if (!fileId) throw new Error("Failed to create Google Drive file");
+
+    await drive.permissions.create({
+      fileId,
+      requestBody: {
+        role: "reader",
+        type: "anyone",
+      },
+    });
+
+    const imageUrl = `https://drive.google.com/uc?export=view&id=${fileId}`;
+
+    return NextResponse.json({ ok: true, imageUrl });
   } catch (error) {
     console.error("POST /api/admin/products/upload error", error);
     return NextResponse.json({ ok: false, error: "Failed to upload image" }, { status: 500 });

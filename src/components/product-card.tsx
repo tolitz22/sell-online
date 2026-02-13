@@ -23,6 +23,7 @@ export function ProductCard({ product, onBuy }: Props) {
             src={product.imageUrl}
             alt={product.name}
             fill
+            unoptimized
             className="object-cover transition duration-300 group-hover:scale-105"
           />
         </div>

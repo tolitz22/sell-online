@@ -38,6 +38,19 @@ function toCsvValue(value: string | number) {
   return text;
 }
 
+function formatOrderDate(value: string) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("en-PH", {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
 export function AdminDashboard({ initialOrders, initialProducts }: Props) {
   const [orders, setOrders] = useState(initialOrders);
   const [products, setProducts] = useState(initialProducts);
@@ -404,7 +417,7 @@ export function AdminDashboard({ initialOrders, initialProducts }: Props) {
           {form.imageUrl ? (
             <div className="sm:col-span-2">
               <div className="relative h-24 w-24 overflow-hidden rounded-md border">
-                <Image src={form.imageUrl} alt="Product preview" fill className="object-cover" />
+                <Image src={form.imageUrl} alt="Product preview" fill unoptimized className="object-cover" />
               </div>
             </div>
           ) : null}
@@ -445,7 +458,7 @@ export function AdminDashboard({ initialOrders, initialProducts }: Props) {
                 <TD>
                   {product.imageUrl ? (
                     <div className="relative h-12 w-12 overflow-hidden rounded-md border">
-                      <Image src={product.imageUrl} alt={product.name} fill className="object-cover" />
+                      <Image src={product.imageUrl} alt={product.name} fill unoptimized className="object-cover" />
                     </div>
                   ) : (
                     <span className="text-xs text-zinc-500">No image</span>
@@ -488,6 +501,7 @@ export function AdminDashboard({ initialOrders, initialProducts }: Props) {
         <Table>
           <THead>
             <TR>
+              <TH>Date</TH>
               <TH>Order ID</TH>
               <TH>Name</TH>
               <TH>Item</TH>
@@ -499,6 +513,7 @@ export function AdminDashboard({ initialOrders, initialProducts }: Props) {
           <TBody>
             {paginatedOrders.map((order) => (
               <TR key={order.orderId}>
+                <TD className="whitespace-nowrap">{formatOrderDate(order.timestamp)}</TD>
                 <TD className="font-medium">{order.orderId}</TD>
                 <TD>{order.fullName}</TD>
                 <TD>{order.itemName}</TD>
@@ -525,7 +540,7 @@ export function AdminDashboard({ initialOrders, initialProducts }: Props) {
 
             {paginatedOrders.length === 0 ? (
               <TR>
-                <TD className="py-6 text-center text-zinc-500" colSpan={6}>No orders found</TD>
+                <TD className="py-6 text-center text-zinc-500" colSpan={7}>No orders found</TD>
               </TR>
             ) : null}
           </TBody>

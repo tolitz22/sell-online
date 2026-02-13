@@ -1,76 +1,47 @@
-Nice—here’s the exact setup checklist for your Google Sheet:
+Setup checklist for Google Sheets + Google Drive image uploads
 
-## 1) Create the sheet
-1. Go to Google Sheets → create new spreadsheet.
-2. Rename file (example: `Angelito Orders`).
-3. Rename first tab to: `orders` (or any name, just match env var).
+1) Create spreadsheet tabs
+- Create one spreadsheet.
+- Add tab `orders`.
+- Add tab `products`.
 
-## 2) Add the required columns (Row 1, exact order)
-Put these headers in **A1 to K1**:
+2) Add required headers
+- `orders` tab (A1:K1):
+  - `timestamp`, `orderId`, `itemId`, `itemName`, `price`, `quantity`, `fullName`, `email`, `phone`, `notes`, `paymentStatus`
+- `products` tab (A1:G1):
+  - `id`, `name`, `category`, `price`, `description`, `status`, `imageUrl`
 
-1. `timestamp`  
-2. `orderId`  
-3. `itemId`  
-4. `itemName`  
-5. `price`  
-6. `quantity`  
-7. `fullName`  
-8. `email`  
-9. `phone`  
-10. `notes`  
-11. `paymentStatus`
+3) Enable APIs in Google Cloud
+- Enable `Google Sheets API`.
+- Enable `Google Drive API`.
 
-## 3) Create Google Cloud project + enable Sheets API
-1. Open: https://console.cloud.google.com  
-2. Create/select a project.
-3. Go to **APIs & Services > Library**.
-4. Enable **Google Sheets API**.
+4) Create service account key
+- Create service account.
+- Create JSON key.
+- Keep `client_email` and `private_key`.
 
-## 4) Create Service Account
-1. Go to **IAM & Admin > Service Accounts**.
-2. Click **Create Service Account**.
-3. Name it (example: `orders-sheets-bot`) → Create.
-4. Open the service account → **Keys** tab.
-5. **Add Key > Create new key > JSON**.
-6. JSON file downloads — keep it safe.
+5) Share resources with service account
+- Share spreadsheet to service account email as `Editor`.
+- Create a Google Drive folder for product images.
+- Share that Drive folder to service account email as `Editor`.
+- Copy that folder ID from URL.
 
-## 5) Share sheet with service account email
-1. Open the downloaded JSON.
-2. Copy `client_email` (looks like `xxx@xxx.iam.gserviceaccount.com`).
-3. Go back to your Google Sheet.
-4. Click **Share**.
-5. Paste service account email.
-6. Give **Editor** access.
-7. Send/share.
-
-## 6) Fill `.env.local`
-In your project root (`D:\sell-online`), create `.env.local` from `.env.local.example` and set:
-
+6) Configure `.env.local`
 ```env
 GOOGLE_SERVICE_ACCOUNT_EMAIL=your-service-account@your-project.iam.gserviceaccount.com
 GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
 GOOGLE_SHEETS_SPREADSHEET_ID=your_spreadsheet_id_here
 GOOGLE_SHEETS_SHEET_NAME=orders
+GOOGLE_SHEETS_PRODUCTS_SHEET_NAME=products
+GOOGLE_DRIVE_PRODUCTS_FOLDER_ID=your_drive_folder_id
 ADMIN_PASSWORD=your_strong_admin_password
 ```
 
-### Important notes
-- `GOOGLE_PRIVATE_KEY` must keep `\n` newlines exactly like above.
-- Spreadsheet ID is in URL:  
-  `https://docs.google.com/spreadsheets/d/<SPREADSHEET_ID>/edit...`
-- `GOOGLE_SHEETS_SHEET_NAME` must match tab name exactly (`orders`).
-
-## 7) Test
-1. Run:
-   ```bash
-   npm install
-   npm run dev
-   ```
-2. Open homepage, place a test order.
-3. Check your Google Sheet — new row should appear.
-4. Visit `/admin`, login, update status.
-5. Visit `/order/<orderId>` to confirm status display.
-
-If you want, I can give you a **copy-paste `.env.local` template with placeholders filled by example values** so you can just edit 5 lines quickly.
-
-
+7) Test
+- Run `npm run dev`.
+- Open `/admin`.
+- Add an item and upload an image.
+- Confirm:
+  - New row in `products` tab.
+  - `imageUrl` contains a Google Drive URL.
+  - Image appears on homepage.
