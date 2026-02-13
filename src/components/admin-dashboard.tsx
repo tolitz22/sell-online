@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PaymentStatus } from "@/lib/schemas";
 import { SheetOrder } from "@/lib/sheets";
 import { Product } from "@/lib/products";
@@ -70,6 +70,11 @@ export function AdminDashboard({ initialOrders, initialProducts }: Props) {
     status: "AVAILABLE" as "AVAILABLE" | "SOLD_OUT",
     imageUrl: "",
   });
+  const editTargetRef = useRef<string>("__new__");
+
+  useEffect(() => {
+    editTargetRef.current = editingId ?? "__new__";
+  }, [editingId]);
 
   useEffect(() => {
     if (!notice) return;
@@ -112,6 +117,7 @@ export function AdminDashboard({ initialOrders, initialProducts }: Props) {
   }
 
   async function uploadImage(file: File) {
+    const targetAtUploadStart = editingId ?? "__new__";
     setUploadingImage(true);
     try {
       const payload = new FormData();
@@ -123,6 +129,11 @@ export function AdminDashboard({ initialOrders, initialProducts }: Props) {
       });
       const data = await res.json();
       if (!res.ok || !data?.ok || !data?.imageUrl) throw new Error(data?.error ?? "Upload failed");
+
+      if (editTargetRef.current !== targetAtUploadStart) {
+        showNotice("error", "Upload finished for a different edit session. Please upload again.");
+        return;
+      }
 
       setForm((s) => ({ ...s, imageUrl: data.imageUrl as string }));
       showNotice("success", "Image uploaded.");
@@ -399,6 +410,9 @@ export function AdminDashboard({ initialOrders, initialProducts }: Props) {
               value={form.imageUrl}
               onChange={(e) => setForm((s) => ({ ...s, imageUrl: e.target.value }))}
             />
+            <p className="mt-1 truncate text-xs text-zinc-500">
+              Current image URL: {form.imageUrl || "none"}
+            </p>
           </div>
 
           <div className="sm:col-span-2 flex flex-wrap items-center gap-2">

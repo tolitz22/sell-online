@@ -14,8 +14,9 @@ function getUploadFolder() {
   return process.env.CLOUDINARY_UPLOAD_FOLDER?.trim() || "sell-online/products";
 }
 
-function buildSignature(folder: string, timestamp: number, apiSecret: string) {
-  const toSign = `folder=${folder}&timestamp=${timestamp}${apiSecret}`;
+function buildSignature(folder: string, publicId: string, timestamp: number, apiSecret: string) {
+  const toSign =
+    `folder=${folder}&overwrite=false&public_id=${publicId}&timestamp=${timestamp}&unique_filename=false${apiSecret}`;
   return crypto.createHash("sha1").update(toSign).digest("hex");
 }
 
@@ -43,9 +44,11 @@ export async function POST(req: Request) {
     const apiKey = requiredEnv("CLOUDINARY_API_KEY");
     const apiSecret = requiredEnv("CLOUDINARY_API_SECRET");
     const folder = getUploadFolder();
+    const baseName = file.name.replace(/\.[^.]+$/, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "product";
+    const publicId = `${baseName}-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
 
     const timestamp = Math.floor(Date.now() / 1000);
-    const signature = buildSignature(folder, timestamp, apiSecret);
+    const signature = buildSignature(folder, publicId, timestamp, apiSecret);
 
     const uploadForm = new FormData();
     uploadForm.append("file", file);
@@ -53,6 +56,9 @@ export async function POST(req: Request) {
     uploadForm.append("timestamp", String(timestamp));
     uploadForm.append("signature", signature);
     uploadForm.append("folder", folder);
+    uploadForm.append("public_id", publicId);
+    uploadForm.append("overwrite", "false");
+    uploadForm.append("unique_filename", "false");
 
     const uploadRes = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
       method: "POST",
