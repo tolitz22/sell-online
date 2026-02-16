@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { clearAdminSessionCookie } from "@/lib/admin-auth";
 
 export async function POST() {
-  await clearAdminSessionCookie();
-  return NextResponse.json({ ok: true });
+  return NextResponse.json(
+    { ok: false, error: "Route moved. Use /api/store/{slug}/admin/logout" },
+    { status: 410 },
+  );
 }

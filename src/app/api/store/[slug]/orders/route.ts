@@ -1,0 +1,92 @@
+import { NextResponse } from "next/server";
+import { resolveTenant, buildTenantSheetsConfig } from "@/lib/tenant-middleware";
+import { getProductById } from "@/lib/products";
+import { orderSchema } from "@/lib/schemas";
+import { appendOrderRow, getAllProductsSafe } from "@/lib/sheets";
+import { generateOrderId } from "@/lib/utils";
+
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX_REQUESTS = 5;
+const rateLimitStore = new Map<string, number[]>();
+
+function getClientIp(req: Request) {
+    const xff = req.headers.get("x-forwarded-for");
+    if (xff) return xff.split(",")[0].trim();
+    const xri = req.headers.get("x-real-ip");
+    if (xri) return xri.trim();
+    return "unknown";
+}
+
+function checkRateLimit(key: string) {
+    const now = Date.now();
+    const timestamps = rateLimitStore.get(key) ?? [];
+    const fresh = timestamps.filter((t) => now - t < RATE_LIMIT_WINDOW_MS);
+
+    if (fresh.length >= RATE_LIMIT_MAX_REQUESTS) {
+        rateLimitStore.set(key, fresh);
+        return false;
+    }
+
+    fresh.push(now);
+    rateLimitStore.set(key, fresh);
+    return true;
+}
+
+export async function POST(req: Request, { params }: { params: Promise<{ slug: string }> }) {
+    try {
+        const { slug } = await params;
+        const tenant = resolveTenant(slug);
+        if (!tenant) return NextResponse.json({ ok: false, error: "Store not found" }, { status: 404 });
+
+        const ip = getClientIp(req);
+        const allowed = checkRateLimit(`${slug}:${ip}`);
+        if (!allowed) {
+            return NextResponse.json(
+                { ok: false, error: "Too many requests. Please try again in a minute." },
+                { status: 429 },
+            );
+        }
+
+        const json = await req.json();
+        const parsed = orderSchema.safeParse(json);
+        if (!parsed.success) {
+            return NextResponse.json(
+                { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid payload" },
+                { status: 400 },
+            );
+        }
+
+        const config = buildTenantSheetsConfig(tenant);
+        const products = await getAllProductsSafe(config);
+        const product = getProductById(products, parsed.data.itemId);
+        if (!product) {
+            return NextResponse.json({ ok: false, error: "Item not found" }, { status: 404 });
+        }
+
+        if (product.status !== "AVAILABLE") {
+            return NextResponse.json({ ok: false, error: "Item is sold out" }, { status: 400 });
+        }
+
+        const orderId = generateOrderId();
+
+        await appendOrderRow(config, {
+            timestamp: new Date().toISOString(),
+            orderId,
+            itemId: product.id,
+            itemName: product.name,
+            price: product.price,
+            quantity: parsed.data.quantity,
+            fullName: parsed.data.fullName,
+            email: parsed.data.email,
+            phone: parsed.data.phone,
+            address: parsed.data.address,
+            notes: parsed.data.notes ?? "",
+            paymentStatus: "PENDING_PROOF",
+        });
+
+        return NextResponse.json({ ok: true, orderId });
+    } catch (error) {
+        console.error("POST /api/store/[slug]/orders error", error);
+        return NextResponse.json({ ok: false, error: "Internal server error" }, { status: 500 });
+    }
+}

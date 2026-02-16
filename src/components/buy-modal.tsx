@@ -14,21 +14,25 @@ type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   product: Product | null;
+  slug: string;
+  gcashQrUrl?: string;
 };
 
 type FormState = {
   fullName: string;
   email: string;
   phone: string;
+  address: string;
   quantity: number;
   notes: string;
 };
 
-export function BuyModal({ open, onOpenChange, product }: Props) {
+export function BuyModal({ open, onOpenChange, product, slug, gcashQrUrl }: Props) {
   const [form, setForm] = useState<FormState>({
     fullName: "",
     email: "",
     phone: "",
+    address: "",
     quantity: 1,
     notes: "",
   });
@@ -53,6 +57,7 @@ export function BuyModal({ open, onOpenChange, product }: Props) {
       fullName: form.fullName,
       email: form.email,
       phone: form.phone,
+      address: form.address,
       notes: form.notes,
     });
 
@@ -64,7 +69,7 @@ export function BuyModal({ open, onOpenChange, product }: Props) {
 
     setLoading(true);
     try {
-      const res = await fetch("/api/orders", {
+      const res = await fetch(`/api/store/${slug}/orders`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(parsed.data),
@@ -88,7 +93,7 @@ export function BuyModal({ open, onOpenChange, product }: Props) {
       setOrderId(null);
       setError("");
       setLoading(false);
-      setForm({ fullName: "", email: "", phone: "", quantity: 1, notes: "" });
+      setForm({ fullName: "", email: "", phone: "", address: "", quantity: 1, notes: "" });
     }
     onOpenChange(nextOpen);
   };
@@ -126,6 +131,13 @@ export function BuyModal({ open, onOpenChange, product }: Props) {
                 onChange={(e) => setForm((s) => ({ ...s, phone: e.target.value }))}
                 required
               />
+              <Textarea
+                className="bg-white"
+                placeholder="Delivery address"
+                value={form.address}
+                onChange={(e) => setForm((s) => ({ ...s, address: e.target.value }))}
+                required
+              />
               <Input className="bg-zinc-100 font-medium text-zinc-600" value={product?.name ?? ""} readOnly />
               <Input
                 className="bg-white"
@@ -157,7 +169,14 @@ export function BuyModal({ open, onOpenChange, product }: Props) {
             <p className="text-sm text-zinc-700">Order ID: <span className="font-bold text-zinc-900">{orderId}</span></p>
 
             <div className="mx-auto w-fit rounded-lg border p-3">
-              <Image src="/gcash-qr.png" alt="GCash QR Code" width={220} height={220} className="rounded-md" />
+              <Image
+                src={gcashQrUrl || "/gcash-qr.png"}
+                alt="GCash QR Code"
+                width={220}
+                height={220}
+                className="rounded-md"
+                unoptimized
+              />
             </div>
 
             <p className="text-sm leading-relaxed text-zinc-700">

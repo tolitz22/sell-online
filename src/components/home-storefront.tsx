@@ -7,9 +7,11 @@ import { ProductCard } from "@/components/product-card";
 
 type Props = {
   products: Product[];
+  slug: string;
+  gcashQrUrl?: string;
 };
 
-export function HomeStorefront({ products }: Props) {
+export function HomeStorefront({ products, slug, gcashQrUrl }: Props) {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
   return (
@@ -25,7 +27,13 @@ export function HomeStorefront({ products }: Props) {
         </div>
       ) : null}
 
-      <BuyModal open={Boolean(selectedProduct)} onOpenChange={(open) => !open && setSelectedProduct(null)} product={selectedProduct} />
+      <BuyModal
+        open={Boolean(selectedProduct)}
+        onOpenChange={(open) => !open && setSelectedProduct(null)}
+        product={selectedProduct}
+        slug={slug}
+        gcashQrUrl={gcashQrUrl}
+      />
     </>
   );
 }

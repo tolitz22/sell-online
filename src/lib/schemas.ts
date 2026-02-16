@@ -8,6 +8,7 @@ export const orderSchema = z.object({
   fullName: z.string().min(2, "Full name is required"),
   email: z.string().email("Valid email is required"),
   phone: z.string().min(6, "Phone is required"),
+  address: z.string().min(5, "Delivery address is required").max(300, "Address is too long"),
   notes: z.string().max(500).optional().default(""),
 });
 

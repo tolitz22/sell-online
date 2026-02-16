@@ -2,6 +2,15 @@ import { google } from "googleapis";
 import { PaymentStatus } from "@/lib/schemas";
 import { Product, ProductStatus } from "@/lib/products";
 
+export type TenantSheetsConfig = {
+  tenantId: string;
+  serviceAccountEmail: string;
+  privateKey: string;
+  spreadsheetId: string;
+  ordersSheetName: string;
+  productsSheetName: string;
+};
+
 export type SheetOrder = {
   timestamp: string;
   orderId: string;
@@ -12,83 +21,72 @@ export type SheetOrder = {
   fullName: string;
   email: string;
   phone: string;
+  address: string;
   notes: string;
   paymentStatus: PaymentStatus;
 };
 
-type RequiredEnv =
-  | "GOOGLE_SERVICE_ACCOUNT_EMAIL"
-  | "GOOGLE_PRIVATE_KEY"
-  | "GOOGLE_SHEETS_SPREADSHEET_ID";
-
-function getEnv(name: RequiredEnv) {
-  const value = process.env[name];
-  if (!value) throw new Error(`Missing env: ${name}`);
-  return value;
-}
-
-function getSheetsClient() {
-  const clientEmail = getEnv("GOOGLE_SERVICE_ACCOUNT_EMAIL");
-  const privateKey = getEnv("GOOGLE_PRIVATE_KEY").replace(/\\n/g, "\n");
-
+function getSheetsClient(config: TenantSheetsConfig) {
   const auth = new google.auth.JWT({
-    email: clientEmail,
-    key: privateKey,
+    email: config.serviceAccountEmail,
+    key: config.privateKey,
     scopes: ["https://www.googleapis.com/auth/spreadsheets"],
   });
-
   return google.sheets({ version: "v4", auth });
-}
-
-function getConfig() {
-  return {
-    spreadsheetId: getEnv("GOOGLE_SHEETS_SPREADSHEET_ID"),
-    sheetName: process.env.GOOGLE_SHEETS_SHEET_NAME?.trim() || "orders",
-    productsSheetName: process.env.GOOGLE_SHEETS_PRODUCTS_SHEET_NAME?.trim() || "products",
-  };
 }
 
 function toProductStatus(value: string): ProductStatus {
   return value === "SOLD_OUT" ? "SOLD_OUT" : "AVAILABLE";
 }
 
+// --- Per-tenant products cache ---
 const PRODUCTS_CACHE_TTL_MS = 200_000;
-let productsCache: { data: Product[]; expiresAt: number } | null = null;
+const productsCacheMap = new Map<string, { data: Product[]; expiresAt: number }>();
 
-function clearProductsCache() {
-  productsCache = null;
+function clearProductsCache(tenantId: string) {
+  productsCacheMap.delete(tenantId);
 }
 
-function setProductsCache(data: Product[]) {
-  productsCache = {
-    data,
-    expiresAt: Date.now() + PRODUCTS_CACHE_TTL_MS,
-  };
+function setProductsCache(tenantId: string, data: Product[]) {
+  productsCacheMap.set(tenantId, { data, expiresAt: Date.now() + PRODUCTS_CACHE_TTL_MS });
 }
 
+function getProductsCache(tenantId: string): Product[] | null {
+  const entry = productsCacheMap.get(tenantId);
+  if (!entry) return null;
+  if (entry.expiresAt < Date.now()) {
+    productsCacheMap.delete(tenantId);
+    return null;
+  }
+  return entry.data;
+}
+
+// Column A is tenantId, columns B–H are product data
 function normalizeProduct(row: string[]): Product {
   return {
-    id: row[0] ?? "",
-    name: row[1] ?? "",
-    category: row[2] ?? "General",
-    price: Number(row[3] ?? 0),
-    description: row[4] ?? "",
-    status: toProductStatus(row[5] ?? "AVAILABLE"),
-    imageUrl: row[6] ?? "",
+    id: row[1] ?? "",
+    name: row[2] ?? "",
+    category: row[3] ?? "General",
+    price: Number(row[4] ?? 0),
+    description: row[5] ?? "",
+    status: toProductStatus(row[6] ?? "AVAILABLE"),
+    imageUrl: row[7] ?? "",
   };
 }
 
-export async function appendOrderRow(order: SheetOrder) {
-  const sheets = getSheetsClient();
-  const { spreadsheetId, sheetName } = getConfig();
+// ─── Orders ──────────────────────────────────────────────────
+
+export async function appendOrderRow(config: TenantSheetsConfig, order: SheetOrder) {
+  const sheets = getSheetsClient(config);
 
   await sheets.spreadsheets.values.append({
-    spreadsheetId,
-    range: `${sheetName}!A:K`,
+    spreadsheetId: config.spreadsheetId,
+    range: `${config.ordersSheetName}!A:M`,
     valueInputOption: "RAW",
     requestBody: {
       values: [
         [
+          config.tenantId,
           order.timestamp,
           order.orderId,
           order.itemId,
@@ -98,6 +96,7 @@ export async function appendOrderRow(order: SheetOrder) {
           order.fullName,
           order.email,
           order.phone,
+          order.address,
           order.notes,
           order.paymentStatus,
         ],
@@ -106,44 +105,90 @@ export async function appendOrderRow(order: SheetOrder) {
   });
 }
 
-export async function getAllOrders() {
-  const sheets = getSheetsClient();
-  const { spreadsheetId, sheetName } = getConfig();
+export async function getAllOrders(config: TenantSheetsConfig) {
+  const sheets = getSheetsClient(config);
 
   const res = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: `${sheetName}!A:K`,
+    spreadsheetId: config.spreadsheetId,
+    range: `${config.ordersSheetName}!A:M`,
   });
 
   const rows = res.data.values ?? [];
   if (rows.length <= 1) return [] as SheetOrder[];
 
-  return rows.slice(1).map((row) => ({
-    timestamp: row[0] ?? "",
-    orderId: row[1] ?? "",
-    itemId: row[2] ?? "",
-    itemName: row[3] ?? "",
-    price: Number(row[4] ?? 0),
-    quantity: Number(row[5] ?? 0),
-    fullName: row[6] ?? "",
-    email: row[7] ?? "",
-    phone: row[8] ?? "",
-    notes: row[9] ?? "",
-    paymentStatus: (row[10] ?? "PENDING_PROOF") as PaymentStatus,
-  }));
+  return rows
+    .slice(1)
+    .filter((row) => row[0] === config.tenantId)
+    .map((row) => {
+      const hasAddressColumn = row.length >= 13;
+      return {
+        timestamp: row[1] ?? "",
+        orderId: row[2] ?? "",
+        itemId: row[3] ?? "",
+        itemName: row[4] ?? "",
+        price: Number(row[5] ?? 0),
+        quantity: Number(row[6] ?? 0),
+        fullName: row[7] ?? "",
+        email: row[8] ?? "",
+        phone: row[9] ?? "",
+        address: hasAddressColumn ? (row[10] ?? "") : "",
+        notes: hasAddressColumn ? (row[11] ?? "") : (row[10] ?? ""),
+        paymentStatus: (hasAddressColumn ? row[12] : row[11] ?? "PENDING_PROOF") as PaymentStatus,
+      };
+    });
 }
 
-export async function appendProductRow(product: Product) {
-  const sheets = getSheetsClient();
-  const { spreadsheetId, productsSheetName } = getConfig();
+export async function getOrderById(config: TenantSheetsConfig, orderId: string) {
+  const orders = await getAllOrders(config);
+  return orders.find((o) => o.orderId === orderId) ?? null;
+}
+
+export async function updateOrderPaymentStatus(
+  config: TenantSheetsConfig,
+  orderId: string,
+  paymentStatus: PaymentStatus,
+) {
+  const sheets = getSheetsClient(config);
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: config.spreadsheetId,
+    range: `${config.ordersSheetName}!A:M`,
+  });
+
+  const rows = res.data.values ?? [];
+  if (rows.length <= 1) return false;
+
+  const rowIndex = rows.findIndex(
+    (row, idx) => idx > 0 && row[0] === config.tenantId && row[2] === orderId,
+  );
+  if (rowIndex === -1) return false;
+
+  const sheetRowNumber = rowIndex + 1;
+  const hasAddressColumn = (rows[rowIndex]?.length ?? 0) >= 13;
+  const paymentStatusColumn = hasAddressColumn ? "M" : "L";
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: config.spreadsheetId,
+    range: `${config.ordersSheetName}!${paymentStatusColumn}${sheetRowNumber}`,
+    valueInputOption: "RAW",
+    requestBody: { values: [[paymentStatus]] },
+  });
+
+  return true;
+}
+
+// ─── Products ────────────────────────────────────────────────
+
+export async function appendProductRow(config: TenantSheetsConfig, product: Product) {
+  const sheets = getSheetsClient(config);
 
   await sheets.spreadsheets.values.append({
-    spreadsheetId,
-    range: `${productsSheetName}!A:G`,
+    spreadsheetId: config.spreadsheetId,
+    range: `${config.productsSheetName}!A:H`,
     valueInputOption: "RAW",
     requestBody: {
       values: [
         [
+          config.tenantId,
           product.id,
           product.name,
           product.category,
@@ -156,67 +201,70 @@ export async function appendProductRow(product: Product) {
     },
   });
 
-  clearProductsCache();
+  clearProductsCache(config.tenantId);
 }
 
-export async function getAllProducts() {
-  const sheets = getSheetsClient();
-  const { spreadsheetId, productsSheetName } = getConfig();
+export async function getAllProducts(config: TenantSheetsConfig) {
+  const sheets = getSheetsClient(config);
 
   const res = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: `${productsSheetName}!A:G`,
+    spreadsheetId: config.spreadsheetId,
+    range: `${config.productsSheetName}!A:H`,
   });
 
   const rows = res.data.values ?? [];
   if (rows.length <= 1) return [] as Product[];
 
-  return rows.slice(1).map((row) => normalizeProduct(row));
+  return rows
+    .slice(1)
+    .filter((row) => row[0] === config.tenantId)
+    .map((row) => normalizeProduct(row));
 }
 
-export async function getAllProductsSafe() {
-  if (productsCache && productsCache.expiresAt > Date.now()) {
-    return productsCache.data;
-  }
+export async function getAllProductsSafe(config: TenantSheetsConfig) {
+  const cached = getProductsCache(config.tenantId);
+  if (cached) return cached;
 
   try {
-    const products = await getAllProducts();
-    setProductsCache(products);
+    const products = await getAllProducts(config);
+    setProductsCache(config.tenantId, products);
     return products;
   } catch {
-    return productsCache?.data ?? ([] as Product[]);
+    return getProductsCache(config.tenantId) ?? ([] as Product[]);
   }
 }
 
-async function findProductRow(productId: string) {
-  const sheets = getSheetsClient();
-  const { spreadsheetId, productsSheetName } = getConfig();
+async function findProductRow(config: TenantSheetsConfig, productId: string) {
+  const sheets = getSheetsClient(config);
   const res = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: `${productsSheetName}!A:G`,
+    spreadsheetId: config.spreadsheetId,
+    range: `${config.productsSheetName}!A:H`,
   });
 
   const rows = res.data.values ?? [];
   if (rows.length <= 1) return null;
 
-  const idx = rows.findIndex((row, rowIndex) => rowIndex > 0 && row[0] === productId);
+  const idx = rows.findIndex(
+    (row, rowIndex) => rowIndex > 0 && row[0] === config.tenantId && row[1] === productId,
+  );
   if (idx === -1) return null;
 
   const sheetRowNumber = idx + 1;
   return {
-    spreadsheetId,
-    productsSheetName,
+    spreadsheetId: config.spreadsheetId,
+    productsSheetName: config.productsSheetName,
     sheetRowNumber,
     product: normalizeProduct(rows[idx] as string[]),
   };
 }
 
 export async function updateProductById(
+  config: TenantSheetsConfig,
   productId: string,
   updates: Partial<Pick<Product, "name" | "category" | "price" | "description" | "status" | "imageUrl">>,
 ) {
-  const sheets = getSheetsClient();
-  const row = await findProductRow(productId);
+  const sheets = getSheetsClient(config);
+  const row = await findProductRow(config, productId);
   if (!row) return null;
 
   const next: Product = {
@@ -228,11 +276,12 @@ export async function updateProductById(
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: row.spreadsheetId,
-    range: `${row.productsSheetName}!A${row.sheetRowNumber}:G${row.sheetRowNumber}`,
+    range: `${row.productsSheetName}!A${row.sheetRowNumber}:H${row.sheetRowNumber}`,
     valueInputOption: "RAW",
     requestBody: {
       values: [
         [
+          config.tenantId,
           next.id,
           next.name,
           next.category,
@@ -245,25 +294,25 @@ export async function updateProductById(
     },
   });
 
-  clearProductsCache();
+  clearProductsCache(config.tenantId);
   return next;
 }
 
-async function getSheetIdByName(spreadsheetId: string, sheetName: string) {
-  const sheets = getSheetsClient();
-  const meta = await sheets.spreadsheets.get({ spreadsheetId });
+async function getSheetIdByName(config: TenantSheetsConfig, sheetName: string) {
+  const sheets = getSheetsClient(config);
+  const meta = await sheets.spreadsheets.get({ spreadsheetId: config.spreadsheetId });
   const match = (meta.data.sheets ?? []).find((sheet) => sheet.properties?.title === sheetName);
   return match?.properties?.sheetId ?? null;
 }
 
-export async function deleteProductById(productId: string) {
-  const row = await findProductRow(productId);
+export async function deleteProductById(config: TenantSheetsConfig, productId: string) {
+  const row = await findProductRow(config, productId);
   if (!row) return false;
 
-  const sheetId = await getSheetIdByName(row.spreadsheetId, row.productsSheetName);
+  const sheetId = await getSheetIdByName(config, row.productsSheetName);
   if (sheetId === null) return false;
 
-  const sheets = getSheetsClient();
+  const sheets = getSheetsClient(config);
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId: row.spreadsheetId,
     requestBody: {
@@ -282,37 +331,6 @@ export async function deleteProductById(productId: string) {
     },
   });
 
-  clearProductsCache();
-  return true;
-}
-
-export async function getOrderById(orderId: string) {
-  const orders = await getAllOrders();
-  return orders.find((o) => o.orderId === orderId) ?? null;
-}
-
-export async function updateOrderPaymentStatus(orderId: string, paymentStatus: PaymentStatus) {
-  const sheets = getSheetsClient();
-  const { spreadsheetId, sheetName } = getConfig();
-
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: `${sheetName}!A:K`,
-  });
-
-  const rows = res.data.values ?? [];
-  if (rows.length <= 1) return false;
-
-  const rowIndex = rows.findIndex((row, idx) => idx > 0 && row[1] === orderId);
-  if (rowIndex === -1) return false;
-
-  const sheetRowNumber = rowIndex + 1;
-  await sheets.spreadsheets.values.update({
-    spreadsheetId,
-    range: `${sheetName}!K${sheetRowNumber}`,
-    valueInputOption: "RAW",
-    requestBody: { values: [[paymentStatus]] },
-  });
-
+  clearProductsCache(config.tenantId);
   return true;
 }
