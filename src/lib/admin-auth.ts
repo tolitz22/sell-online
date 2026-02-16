@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { cookies } from "next/headers";
-import { hashPassword, type Tenant } from "@/lib/tenant-db";
+import type { Tenant } from "@/lib/tenant-db";
 
 function cookieName(slug: string) {
   return `admin_session_${slug}`;
@@ -11,7 +11,7 @@ function sessionToken(tenant: Tenant) {
 }
 
 export function isPasswordValid(tenant: Tenant, input: string) {
-  const inputHash = hashPassword(input);
+  const inputHash = crypto.createHash("sha256").update(input).digest("hex");
   return inputHash === tenant.adminPasswordHash;
 }
 

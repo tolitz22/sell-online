@@ -7,6 +7,8 @@ import {
   type OnboardingRequestView,
 } from "@/components/super-admin-dashboard";
 
+export const runtime = "nodejs";
+
 function toTenantView(): TenantView[] {
   return getAllTenants().map((tenant) => ({
     id: tenant.id,
@@ -65,9 +67,23 @@ export default async function SuperAdminPage() {
     );
   }
 
-  return (
-    <main className="mx-auto max-w-6xl px-4 py-10">
-      <SuperAdminDashboard initialTenants={toTenantView()} initialRequests={toOnboardingView()} />
-    </main>
-  );
+  try {
+    return (
+      <main className="mx-auto max-w-6xl px-4 py-10">
+        <SuperAdminDashboard initialTenants={toTenantView()} initialRequests={toOnboardingView()} />
+      </main>
+    );
+  } catch (error) {
+    console.error("GET /super-admin error", error);
+    return (
+      <main className="mx-auto max-w-3xl px-4 py-12">
+        <div className="rounded-xl border border-red-200 bg-red-50 p-5">
+          <h1 className="text-xl font-bold text-red-800">Super Admin Data Error</h1>
+          <p className="mt-2 text-sm text-red-800">
+            The server could not load tenant data. Check Netlify function logs and database runtime configuration.
+          </p>
+        </div>
+      </main>
+    );
+  }
 }
