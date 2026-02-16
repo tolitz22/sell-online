@@ -72,7 +72,19 @@ type OnboardingRequestRow = {
   created_at: string;
 };
 
-const DB_PATH = process.env.DATABASE_PATH || path.join(process.cwd(), "data", "tenants.db");
+function resolveDbPath() {
+  const configured = process.env.DATABASE_PATH?.trim();
+  // Netlify runtime has a writable temp filesystem at /tmp.
+  if (process.env.NETLIFY) {
+    if (!configured) return "/tmp/tenants.db";
+    if (/^(\.\/)?data[\\/]/i.test(configured)) return "/tmp/tenants.db";
+    return configured;
+  }
+  if (configured) return configured;
+  return path.join(process.cwd(), "data", "tenants.db");
+}
+
+const DB_PATH = resolveDbPath();
 
 let _db: Database.Database | null = null;
 
