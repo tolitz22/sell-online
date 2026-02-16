@@ -79,7 +79,7 @@ function getSeedValues() {
   const heroHeadline = getEnv("NEXT_PUBLIC_HERO_HEADLINE", "");
   const shortBio = getEnv("NEXT_PUBLIC_SITE_BIO", "");
   const adminPassword = getEnv("SEED_ADMIN_PASSWORD", getEnv("ADMIN_PASSWORD"));
-  const cloudinaryFolder = getEnv("SEED_CLOUDINARY_FOLDER", `${getEnv("CLOUDINARY_UPLOAD_FOLDER", "sell-online/products")}/${slug}`);
+  const cloudinaryFolder = getEnv("SEED_CLOUDINARY_FOLDER", `${getEnv("CLOUDINARY_UPLOAD_FOLDER", "products")}/${slug}`);
 
   if (!adminPassword) {
     throw new Error("Missing ADMIN_PASSWORD or SEED_ADMIN_PASSWORD");

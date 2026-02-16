@@ -27,7 +27,7 @@ Setup checklist for Google Sheets + Cloudinary image uploads
   - Cloud name
   - API key
   - API secret
-- Optional: choose upload folder (default: `sell-online/products`).
+- Optional: choose upload folder (default: `products`).
 
 7) Configure `.env.local`
 ```env
@@ -41,7 +41,7 @@ ADMIN_PASSWORD=your_strong_admin_password
 CLOUDINARY_CLOUD_NAME=your_cloud_name
 CLOUDINARY_API_KEY=your_api_key
 CLOUDINARY_API_SECRET=your_api_secret
-CLOUDINARY_UPLOAD_FOLDER=sell-online/products
+CLOUDINARY_UPLOAD_FOLDER=your_upload_folder
 ```
 
 8) Test
