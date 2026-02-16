@@ -4,8 +4,4 @@
 
 [build.environment]
   NODE_VERSION = "20"
-  DATABASE_PATH = "/tmp/tenants.db"
-
-[functions]
-  node_bundler = "esbuild"
-  external_node_modules = ["better-sqlite3"]
+  DATABASE_PATH = "/tmp/tenants.json"

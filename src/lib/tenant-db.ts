@@ -1,5 +1,5 @@
-import Database from "better-sqlite3";
 import crypto from "crypto";
+import fs from "fs";
 import path from "path";
 
 export type Tenant = {
@@ -37,155 +37,74 @@ export type OnboardingRequest = {
   createdAt: string;
 };
 
-type TenantRow = {
-  id: string;
-  slug: string;
-  store_name: string;
-  owner_name: string;
-  hero_badge: string;
-  hero_headline: string;
-  short_bio: string;
-  address: string;
-  admin_password_hash: string;
-  cloudinary_folder: string;
-  gcash_qr_url: string;
-  is_active: number;
-  created_at: string;
+type StoreData = {
+  tenants: Tenant[];
+  onboardingRequests: OnboardingRequest[];
 };
 
-type OnboardingRequestRow = {
-  id: string;
-  slug: string;
-  store_name: string;
-  owner_name: string;
-  email: string;
-  phone: string;
-  hero_headline: string;
-  short_bio: string;
-  expected_products: string;
-  notes: string;
-  cloudinary_folder: string;
-  gcash_qr_url: string;
-  status: "PENDING" | "APPROVED" | "REJECTED";
-  reviewed_tenant_id: string | null;
-  reviewed_at: string | null;
-  created_at: string;
-};
-
-function resolveDbPath() {
+function resolveStorePath() {
   const configured = process.env.DATABASE_PATH?.trim();
-  // Netlify runtime has a writable temp filesystem at /tmp.
+
   if (process.env.NETLIFY) {
-    if (!configured) return "/tmp/tenants.db";
-    if (/^(\.\/)?data[\\/]/i.test(configured)) return "/tmp/tenants.db";
+    if (!configured) return "/tmp/tenants.json";
+    if (/^(\.\/)?data[\\/]/i.test(configured)) return "/tmp/tenants.json";
+    if (/\.db$/i.test(configured)) return configured.replace(/\.db$/i, ".json");
     return configured;
   }
-  if (configured) return configured;
-  return path.join(process.cwd(), "data", "tenants.db");
-}
 
-const DB_PATH = resolveDbPath();
-
-let _db: Database.Database | null = null;
-
-function hasColumn(db: Database.Database, table: string, column: string) {
-  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
-  return rows.some((row) => row.name === column);
-}
-
-function getDb(): Database.Database {
-  if (!_db) {
-    const dir = path.dirname(DB_PATH);
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const fs = require("fs");
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    _db = new Database(DB_PATH);
-    _db.pragma("journal_mode = WAL");
-    _db.exec(`
-      CREATE TABLE IF NOT EXISTS tenants (
-        id                  TEXT PRIMARY KEY,
-        slug                TEXT UNIQUE NOT NULL,
-        store_name          TEXT NOT NULL,
-        owner_name          TEXT NOT NULL,
-        hero_badge          TEXT DEFAULT 'Online Store',
-        hero_headline       TEXT DEFAULT '',
-        short_bio           TEXT DEFAULT '',
-        address             TEXT DEFAULT '',
-        admin_password_hash TEXT NOT NULL,
-        cloudinary_folder   TEXT DEFAULT '',
-        gcash_qr_url        TEXT DEFAULT '',
-        is_active           INTEGER DEFAULT 1,
-        created_at          TEXT DEFAULT (datetime('now'))
-      );
-      CREATE TABLE IF NOT EXISTS onboarding_requests (
-        id                TEXT PRIMARY KEY,
-        slug              TEXT NOT NULL,
-        store_name        TEXT NOT NULL,
-        owner_name        TEXT NOT NULL,
-        email             TEXT NOT NULL,
-        phone             TEXT NOT NULL,
-        hero_headline     TEXT DEFAULT '',
-        short_bio         TEXT DEFAULT '',
-        expected_products TEXT DEFAULT '',
-        notes             TEXT DEFAULT '',
-        cloudinary_folder TEXT DEFAULT '',
-        gcash_qr_url      TEXT DEFAULT '',
-        status            TEXT NOT NULL DEFAULT 'PENDING',
-        reviewed_tenant_id TEXT,
-        reviewed_at       TEXT,
-        created_at        TEXT DEFAULT (datetime('now'))
-      );
-    `);
-    if (!hasColumn(_db, "tenants", "gcash_qr_url")) {
-      _db.exec(`ALTER TABLE tenants ADD COLUMN gcash_qr_url TEXT DEFAULT '';`);
-    }
-    if (!hasColumn(_db, "tenants", "address")) {
-      _db.exec(`ALTER TABLE tenants ADD COLUMN address TEXT DEFAULT '';`);
-    }
-    if (!hasColumn(_db, "onboarding_requests", "gcash_qr_url")) {
-      _db.exec(`ALTER TABLE onboarding_requests ADD COLUMN gcash_qr_url TEXT DEFAULT '';`);
-    }
+  if (configured) {
+    const fullPath = path.isAbsolute(configured) ? configured : path.join(process.cwd(), configured);
+    return /\.db$/i.test(fullPath) ? fullPath.replace(/\.db$/i, ".json") : fullPath;
   }
-  return _db;
+
+  return path.join(process.cwd(), "data", "tenants.json");
 }
 
-function rowToTenant(row: TenantRow): Tenant {
-  return {
-    id: row.id,
-    slug: row.slug,
-    storeName: row.store_name,
-    ownerName: row.owner_name,
-    heroBadge: row.hero_badge,
-    heroHeadline: row.hero_headline,
-    shortBio: row.short_bio,
-    address: row.address ?? "",
-    adminPasswordHash: row.admin_password_hash,
-    cloudinaryFolder: row.cloudinary_folder,
-    gcashQrUrl: row.gcash_qr_url ?? "",
-    isActive: row.is_active === 1,
-    createdAt: row.created_at,
-  };
+const STORE_PATH = resolveStorePath();
+
+let cache: StoreData | null = null;
+
+function ensureStoreFile() {
+  const dir = path.dirname(STORE_PATH);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+  if (!fs.existsSync(STORE_PATH)) {
+    fs.writeFileSync(STORE_PATH, JSON.stringify({ tenants: [], onboardingRequests: [] }, null, 2), "utf-8");
+  }
 }
 
-function rowToOnboardingRequest(row: OnboardingRequestRow): OnboardingRequest {
-  return {
-    id: row.id,
-    slug: row.slug,
-    storeName: row.store_name,
-    ownerName: row.owner_name,
-    email: row.email,
-    phone: row.phone,
-    heroHeadline: row.hero_headline ?? "",
-    shortBio: row.short_bio ?? "",
-    expectedProducts: row.expected_products ?? "",
-    notes: row.notes ?? "",
-    cloudinaryFolder: row.cloudinary_folder ?? "",
-    gcashQrUrl: row.gcash_qr_url ?? "",
-    status: row.status,
-    reviewedTenantId: row.reviewed_tenant_id,
-    reviewedAt: row.reviewed_at,
-    createdAt: row.created_at,
-  };
+function loadStore(): StoreData {
+  if (cache) return cache;
+
+  ensureStoreFile();
+
+  try {
+    const raw = fs.readFileSync(STORE_PATH, "utf-8");
+    const parsed = JSON.parse(raw) as Partial<StoreData>;
+    cache = {
+      tenants: Array.isArray(parsed.tenants) ? parsed.tenants : [],
+      onboardingRequests: Array.isArray(parsed.onboardingRequests) ? parsed.onboardingRequests : [],
+    };
+  } catch {
+    cache = { tenants: [], onboardingRequests: [] };
+    persistStore(cache);
+  }
+
+  return cache;
+}
+
+function persistStore(data: StoreData) {
+  ensureStoreFile();
+  fs.writeFileSync(STORE_PATH, JSON.stringify(data, null, 2), "utf-8");
+  cache = data;
+}
+
+function byCreatedAtDesc<T extends { createdAt: string }>(a: T, b: T) {
+  return b.createdAt.localeCompare(a.createdAt);
+}
+
+function byCreatedAtAsc<T extends { createdAt: string }>(a: T, b: T) {
+  return a.createdAt.localeCompare(b.createdAt);
 }
 
 export function hashPassword(password: string): string {
@@ -193,27 +112,23 @@ export function hashPassword(password: string): string {
 }
 
 export function getTenantBySlug(slug: string): Tenant | null {
-  const db = getDb();
-  const row = db.prepare("SELECT * FROM tenants WHERE slug = ? AND is_active = 1").get(slug) as TenantRow | undefined;
-  return row ? rowToTenant(row) : null;
+  const store = loadStore();
+  return store.tenants.find((tenant) => tenant.slug === slug && tenant.isActive) ?? null;
 }
 
 export function getTenantById(id: string): Tenant | null {
-  const db = getDb();
-  const row = db.prepare("SELECT * FROM tenants WHERE id = ?").get(id) as TenantRow | undefined;
-  return row ? rowToTenant(row) : null;
+  const store = loadStore();
+  return store.tenants.find((tenant) => tenant.id === id) ?? null;
 }
 
 export function getAllTenants(): Tenant[] {
-  const db = getDb();
-  const rows = db.prepare("SELECT * FROM tenants ORDER BY created_at DESC").all() as TenantRow[];
-  return rows.map(rowToTenant);
+  const store = loadStore();
+  return [...store.tenants].sort(byCreatedAtDesc);
 }
 
 export function getActiveTenants(): Tenant[] {
-  const db = getDb();
-  const rows = db.prepare("SELECT * FROM tenants WHERE is_active = 1 ORDER BY created_at DESC").all() as TenantRow[];
-  return rows.map(rowToTenant);
+  const store = loadStore();
+  return store.tenants.filter((tenant) => tenant.isActive).sort(byCreatedAtDesc);
 }
 
 export type CreateTenantInput = {
@@ -230,28 +145,30 @@ export type CreateTenantInput = {
 };
 
 export function createTenant(input: CreateTenantInput): Tenant {
-  const db = getDb();
-  const id = crypto.randomUUID();
-  const passwordHash = hashPassword(input.adminPassword);
+  const store = loadStore();
 
-  db.prepare(`
-    INSERT INTO tenants (id, slug, store_name, owner_name, hero_badge, hero_headline, short_bio, address, admin_password_hash, cloudinary_folder, gcash_qr_url)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    id,
-    input.slug,
-    input.storeName,
-    input.ownerName,
-    input.heroBadge ?? "Online Store",
-    input.heroHeadline ?? "",
-    input.shortBio ?? "",
-    input.address ?? "",
-    passwordHash,
-    input.cloudinaryFolder ?? "",
-    input.gcashQrUrl ?? "",
-  );
+  if (store.tenants.some((tenant) => tenant.slug === input.slug)) {
+    throw new Error("Tenant slug already exists");
+  }
 
-  return getTenantById(id)!;
+  const tenant: Tenant = {
+    id: crypto.randomUUID(),
+    slug: input.slug,
+    storeName: input.storeName,
+    ownerName: input.ownerName,
+    heroBadge: input.heroBadge ?? "Online Store",
+    heroHeadline: input.heroHeadline ?? "",
+    shortBio: input.shortBio ?? "",
+    address: input.address ?? "",
+    adminPasswordHash: hashPassword(input.adminPassword),
+    cloudinaryFolder: input.cloudinaryFolder ?? "",
+    gcashQrUrl: input.gcashQrUrl ?? "",
+    isActive: true,
+    createdAt: new Date().toISOString(),
+  };
+
+  persistStore({ ...store, tenants: [...store.tenants, tenant] });
+  return tenant;
 }
 
 export type UpdateTenantInput = Partial<Omit<CreateTenantInput, "adminPassword">> & {
@@ -260,37 +177,42 @@ export type UpdateTenantInput = Partial<Omit<CreateTenantInput, "adminPassword">
 };
 
 export function updateTenant(id: string, input: UpdateTenantInput): Tenant | null {
-  const db = getDb();
-  const existing = getTenantById(id);
-  if (!existing) return null;
+  const store = loadStore();
+  const index = store.tenants.findIndex((tenant) => tenant.id === id);
+  if (index === -1) return null;
 
-  const updates: string[] = [];
-  const values: (string | number)[] = [];
+  const existing = store.tenants[index];
+  const updated: Tenant = {
+    ...existing,
+    slug: input.slug ?? existing.slug,
+    storeName: input.storeName ?? existing.storeName,
+    ownerName: input.ownerName ?? existing.ownerName,
+    heroBadge: input.heroBadge ?? existing.heroBadge,
+    heroHeadline: input.heroHeadline ?? existing.heroHeadline,
+    shortBio: input.shortBio ?? existing.shortBio,
+    address: input.address ?? existing.address,
+    cloudinaryFolder: input.cloudinaryFolder ?? existing.cloudinaryFolder,
+    gcashQrUrl: input.gcashQrUrl ?? existing.gcashQrUrl,
+    isActive: input.isActive ?? existing.isActive,
+    adminPasswordHash: input.adminPassword ? hashPassword(input.adminPassword) : existing.adminPasswordHash,
+  };
 
-  if (input.slug !== undefined) { updates.push("slug = ?"); values.push(input.slug); }
-  if (input.storeName !== undefined) { updates.push("store_name = ?"); values.push(input.storeName); }
-  if (input.ownerName !== undefined) { updates.push("owner_name = ?"); values.push(input.ownerName); }
-  if (input.heroBadge !== undefined) { updates.push("hero_badge = ?"); values.push(input.heroBadge); }
-  if (input.heroHeadline !== undefined) { updates.push("hero_headline = ?"); values.push(input.heroHeadline); }
-  if (input.shortBio !== undefined) { updates.push("short_bio = ?"); values.push(input.shortBio); }
-  if (input.address !== undefined) { updates.push("address = ?"); values.push(input.address); }
-  if (input.cloudinaryFolder !== undefined) { updates.push("cloudinary_folder = ?"); values.push(input.cloudinaryFolder); }
-  if (input.gcashQrUrl !== undefined) { updates.push("gcash_qr_url = ?"); values.push(input.gcashQrUrl); }
-  if (input.adminPassword !== undefined) { updates.push("admin_password_hash = ?"); values.push(hashPassword(input.adminPassword)); }
-  if (input.isActive !== undefined) { updates.push("is_active = ?"); values.push(input.isActive ? 1 : 0); }
+  if (updated.slug !== existing.slug && store.tenants.some((tenant) => tenant.id !== id && tenant.slug === updated.slug)) {
+    throw new Error("Tenant slug already exists");
+  }
 
-  if (updates.length === 0) return existing;
-
-  values.push(id);
-  db.prepare(`UPDATE tenants SET ${updates.join(", ")} WHERE id = ?`).run(...values);
-
-  return getTenantById(id);
+  const tenants = [...store.tenants];
+  tenants[index] = updated;
+  persistStore({ ...store, tenants });
+  return updated;
 }
 
 export function deleteTenant(id: string): boolean {
-  const db = getDb();
-  const result = db.prepare("DELETE FROM tenants WHERE id = ?").run(id);
-  return result.changes > 0;
+  const store = loadStore();
+  const tenants = store.tenants.filter((tenant) => tenant.id !== id);
+  if (tenants.length === store.tenants.length) return false;
+  persistStore({ ...store, tenants });
+  return true;
 }
 
 export type CreateOnboardingRequestInput = {
@@ -308,48 +230,44 @@ export type CreateOnboardingRequestInput = {
 };
 
 export function createOnboardingRequest(input: CreateOnboardingRequestInput): OnboardingRequest {
-  const db = getDb();
-  const id = crypto.randomUUID();
+  const store = loadStore();
 
-  db.prepare(`
-    INSERT INTO onboarding_requests (
-      id, slug, store_name, owner_name, email, phone, hero_headline, short_bio, expected_products, notes, cloudinary_folder, gcash_qr_url, status
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')
-  `).run(
-    id,
-    input.slug,
-    input.storeName,
-    input.ownerName,
-    input.email,
-    input.phone,
-    input.heroHeadline ?? "",
-    input.shortBio ?? "",
-    input.expectedProducts ?? "",
-    input.notes ?? "",
-    input.cloudinaryFolder ?? "",
-    input.gcashQrUrl ?? "",
-  );
+  const request: OnboardingRequest = {
+    id: crypto.randomUUID(),
+    slug: input.slug,
+    storeName: input.storeName,
+    ownerName: input.ownerName,
+    email: input.email,
+    phone: input.phone,
+    heroHeadline: input.heroHeadline ?? "",
+    shortBio: input.shortBio ?? "",
+    expectedProducts: input.expectedProducts ?? "",
+    notes: input.notes ?? "",
+    cloudinaryFolder: input.cloudinaryFolder ?? "",
+    gcashQrUrl: input.gcashQrUrl ?? "",
+    status: "PENDING",
+    reviewedTenantId: null,
+    reviewedAt: null,
+    createdAt: new Date().toISOString(),
+  };
 
-  return getOnboardingRequestById(id)!;
+  persistStore({ ...store, onboardingRequests: [...store.onboardingRequests, request] });
+  return request;
 }
 
 export function getOnboardingRequestById(id: string): OnboardingRequest | null {
-  const db = getDb();
-  const row = db.prepare("SELECT * FROM onboarding_requests WHERE id = ?").get(id) as OnboardingRequestRow | undefined;
-  return row ? rowToOnboardingRequest(row) : null;
+  const store = loadStore();
+  return store.onboardingRequests.find((request) => request.id === id) ?? null;
 }
 
 export function getPendingOnboardingRequests(): OnboardingRequest[] {
-  const db = getDb();
-  const rows = db.prepare("SELECT * FROM onboarding_requests WHERE status = 'PENDING' ORDER BY created_at ASC").all() as OnboardingRequestRow[];
-  return rows.map(rowToOnboardingRequest);
+  const store = loadStore();
+  return store.onboardingRequests.filter((request) => request.status === "PENDING").sort(byCreatedAtAsc);
 }
 
 export function getAllOnboardingRequests(): OnboardingRequest[] {
-  const db = getDb();
-  const rows = db.prepare("SELECT * FROM onboarding_requests ORDER BY created_at DESC").all() as OnboardingRequestRow[];
-  return rows.map(rowToOnboardingRequest);
+  const store = loadStore();
+  return [...store.onboardingRequests].sort(byCreatedAtDesc);
 }
 
 export function updateOnboardingRequestStatus(
@@ -357,15 +275,20 @@ export function updateOnboardingRequestStatus(
   status: "APPROVED" | "REJECTED",
   reviewedTenantId: string | null = null,
 ): OnboardingRequest | null {
-  const db = getDb();
-  const exists = getOnboardingRequestById(id);
-  if (!exists) return null;
+  const store = loadStore();
+  const index = store.onboardingRequests.findIndex((request) => request.id === id);
+  if (index === -1) return null;
 
-  db.prepare(`
-    UPDATE onboarding_requests
-    SET status = ?, reviewed_tenant_id = ?, reviewed_at = datetime('now')
-    WHERE id = ?
-  `).run(status, reviewedTenantId, id);
+  const existing = store.onboardingRequests[index];
+  const updated: OnboardingRequest = {
+    ...existing,
+    status,
+    reviewedTenantId,
+    reviewedAt: new Date().toISOString(),
+  };
 
-  return getOnboardingRequestById(id);
+  const onboardingRequests = [...store.onboardingRequests];
+  onboardingRequests[index] = updated;
+  persistStore({ ...store, onboardingRequests });
+  return updated;
 }
