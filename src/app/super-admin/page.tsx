@@ -1,5 +1,4 @@
 import { isSuperAdminAuthenticated } from "@/lib/admin-auth";
-import { getAllTenants, getPendingOnboardingRequests } from "@/lib/tenant-db";
 import { SuperAdminLogin } from "@/components/super-admin-login";
 import {
   SuperAdminDashboard,
@@ -9,8 +8,20 @@ import {
 
 export const runtime = "nodejs";
 
-function toTenantView(): TenantView[] {
-  return getAllTenants().map((tenant) => ({
+function toTenantView(tenants: Array<{
+  id: string;
+  slug: string;
+  storeName: string;
+  ownerName: string;
+  heroBadge: string;
+  heroHeadline: string;
+  shortBio: string;
+  cloudinaryFolder: string;
+  gcashQrUrl: string;
+  isActive: boolean;
+  createdAt: string;
+}>): TenantView[] {
+  return tenants.map((tenant) => ({
     id: tenant.id,
     slug: tenant.slug,
     storeName: tenant.storeName,
@@ -25,8 +36,22 @@ function toTenantView(): TenantView[] {
   }));
 }
 
-function toOnboardingView(): OnboardingRequestView[] {
-  return getPendingOnboardingRequests().map((request) => ({
+function toOnboardingView(requests: Array<{
+  id: string;
+  slug: string;
+  storeName: string;
+  ownerName: string;
+  email: string;
+  phone: string;
+  heroHeadline: string;
+  shortBio: string;
+  expectedProducts: string;
+  notes: string;
+  cloudinaryFolder: string;
+  gcashQrUrl: string;
+  createdAt: string;
+}>): OnboardingRequestView[] {
+  return requests.map((request) => ({
     id: request.id,
     slug: request.slug,
     storeName: request.storeName,
@@ -68,9 +93,12 @@ export default async function SuperAdminPage() {
   }
 
   try {
+    const { getAllTenants, getPendingOnboardingRequests } = await import("@/lib/tenant-db");
+    const tenants = getAllTenants();
+    const requests = getPendingOnboardingRequests();
     return (
       <main className="mx-auto max-w-6xl px-4 py-10">
-        <SuperAdminDashboard initialTenants={toTenantView()} initialRequests={toOnboardingView()} />
+        <SuperAdminDashboard initialTenants={toTenantView(tenants)} initialRequests={toOnboardingView(requests)} />
       </main>
     );
   } catch (error) {
