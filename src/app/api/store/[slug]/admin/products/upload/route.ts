@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { resolveTenant } from "@/lib/tenant-middleware";
 import { isAdminAuthenticated } from "@/lib/admin-auth";
+import { getCloudinaryUploadRoot } from "@/lib/runtime-env";
 
 export const runtime = "nodejs";
 
@@ -13,7 +14,7 @@ function requiredEnv(name: "CLOUDINARY_CLOUD_NAME" | "CLOUDINARY_API_KEY" | "CLO
 
 function getUploadFolder(tenantFolder?: string) {
     if (tenantFolder) return tenantFolder;
-    return process.env.CLOUDINARY_UPLOAD_FOLDER?.trim() || "sell-online/products";
+    return getCloudinaryUploadRoot();
 }
 
 function buildSignature(folder: string, publicId: string, timestamp: number, apiSecret: string) {

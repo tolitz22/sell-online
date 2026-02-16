@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
+import { getCloudinaryUploadRoot } from "@/lib/runtime-env";
 
 export const runtime = "nodejs";
 
@@ -10,7 +11,7 @@ function requiredEnv(name: "CLOUDINARY_CLOUD_NAME" | "CLOUDINARY_API_KEY" | "CLO
 }
 
 function getUploadFolder() {
-  const root = process.env.CLOUDINARY_UPLOAD_FOLDER?.trim() || "sell-online/products";
+  const root = getCloudinaryUploadRoot();
   return `${root}/onboarding/qr`;
 }
 

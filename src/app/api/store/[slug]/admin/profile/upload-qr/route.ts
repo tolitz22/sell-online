@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { resolveTenant } from "@/lib/tenant-middleware";
 import { isAdminAuthenticated } from "@/lib/admin-auth";
+import { getCloudinaryUploadRoot } from "@/lib/runtime-env";
 
 export const runtime = "nodejs";
 
@@ -12,7 +13,7 @@ function requiredEnv(name: "CLOUDINARY_CLOUD_NAME" | "CLOUDINARY_API_KEY" | "CLO
 }
 
 function getUploadFolder(tenantFolder?: string) {
-  const root = tenantFolder || process.env.CLOUDINARY_UPLOAD_FOLDER?.trim() || "sell-online/products";
+  const root = tenantFolder || getCloudinaryUploadRoot();
   return `${root}/store-profile/qr`;
 }
 

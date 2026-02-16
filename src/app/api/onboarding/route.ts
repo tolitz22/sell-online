@@ -6,6 +6,7 @@ import {
   getAllTenants,
   getPendingOnboardingRequests,
 } from "@/lib/tenant-db";
+import { getCloudinaryUploadRoot } from "@/lib/runtime-env";
 
 const onboardingSchema = z.object({
   storeName: z.string().min(2, "Store name is required"),
@@ -57,7 +58,7 @@ export async function POST(req: Request) {
     ]);
     const uniqueSlug = uniqueValue(slug, existingSlugs);
 
-    const defaultRootFolder = process.env.CLOUDINARY_UPLOAD_FOLDER?.trim() || "sell-online/products";
+    const defaultRootFolder = getCloudinaryUploadRoot();
     const folderBase = `${defaultRootFolder}/${uniqueSlug}`;
     const existingFolders = new Set<string>([
       ...getAllTenants().map((tenant) => tenant.cloudinaryFolder).filter(Boolean),
